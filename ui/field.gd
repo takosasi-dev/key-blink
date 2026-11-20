@@ -101,12 +101,15 @@ func _key_mark(c: Vector2) -> int:
 	for e: Dictionary in snap["enemies"]:
 		if int(e["kind"]) == Sim.PILLAR and int(e["lp"]) in [Sim.L_WARN, Sim.L_FIRE] and Sim.laser_hits(e, c.x, c.y, B.SHIP_R):
 			return 1
+	# 緑は、まだこの段を通り過ぎていない壁が 1 枚以上あり、その全部の隙間に入る時だけ(隙間の違う 2 枚なら付かない)
+	var coming := 0
 	for w: Dictionary in snap["walls"]:
 		if float(w["y"]) <= c.y + B.SHIP_R:
+			coming += 1
 			var at_row := {"y": c.y - B.WALL_H / 2.0, "gx": w["gx"]}  # 壁がこの段に来た時
-			if not Sim.wall_hits(at_row, c.x, c.y, B.SHIP_R):
-				return 2
-	return 0
+			if Sim.wall_hits(at_row, c.x, c.y, B.SHIP_R):
+				return 0
+	return 2 if coming > 0 else 0
 
 
 # 角の丸い四角の線(角は 8 px)。

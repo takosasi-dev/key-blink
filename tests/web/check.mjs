@@ -147,6 +147,8 @@ try {
 	// 2 回目: 逃げ bot に最後まで遊ばせて場面を撮る
 	if (!process.env.KB_QUICK) {
 		expect(await page.goto(base + '?debug=1&auto=dodge'), '逃げ bot の回を開き直す');
+		await page.waitState((s) => s.screen !== undefined, 20000);
+		const botLoadedAt = Date.now();
 		const plan = {
 			wave2_fan: (p) => p.wave === 2 && p.kinds.includes(1) && p.bullets >= 6,
 			wave3_warn: (p) => p.warn > 0,
@@ -177,6 +179,11 @@ try {
 		await sleep(900);
 		await page.shot('s3_result_bot');
 		console.log('    bot の回の 1 フレーム(ms): ' + JSON.stringify((await page.stats()).frame));
+		// AC-21: 読み込みの後、3 分間の通信が 0 件(bot の回を最後まで遊ぶ間を数える)
+		await sleep(Math.max(0, 185000 - (Date.now() - botLoadedAt)));  // 結果の画面のまま 3 分を超えるまで待つ
+		const after2 = page.requests.filter((r) => r.at > botLoadedAt);
+		const secs = Math.round((Date.now() - botLoadedAt) / 1000);
+		expect(after2.length === 0 && secs >= 180, `bot の回の読み込みの後の通信 ${after2.length} 件(${secs} 秒見た)` + (after2.length ? ': ' + after2.map((r) => r.url).join(', ') : ''));
 	}
 
 	// 3 回目: キーの確かめ

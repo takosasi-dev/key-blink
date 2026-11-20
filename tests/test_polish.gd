@@ -79,6 +79,12 @@ func test_key_marks_follow_core_geometry() -> bool:
 	sim2.walls[0]["y"] = Keys.y_of(0) + 20.0
 	f.snap = sim2.snapshot()
 	eq(f._key_mark(Vector2(Keys.x_of(idx("U")), Keys.y_of(idx("U")))), 0, "通り過ぎた段には印なし")
+	# 隙間の違う 2 枚が降りてくる時は、片方の隙間のキーにも印を付けない
+	sim2.walls[0]["y"] = 200.0
+	sim2.walls.append({"y": 260.0, "gx": Keys.column_x(1), "vy": 1.0, "born": 0})
+	f.snap = sim2.snapshot()
+	eq(f._key_mark(Vector2(Keys.x_of(idx("J")), Keys.y_of(idx("J")))), 0, "2 枚目に当たる J は緑にしない")
+	eq(f._key_mark(Vector2(Keys.x_of(idx("S")), Keys.y_of(idx("S")))), 0, "1 枚目に当たる S も緑にしない")
 	f.free()
 	return true
 

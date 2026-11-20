@@ -218,6 +218,7 @@ func _refresh() -> void:
 @warning_ignore("integer_division")
 func _draw_bar() -> void:
 	bar.draw_rect(Rect2(-2000, -2000, 5280, 2000 + B.FIELD_TOP), Kit.C_OUT)
+	bar.draw_rect(Rect2(-2000, B.FIELD_BOTTOM, 5280, 2000), Kit.C_OUT)  # 縦長の窓で、y 720 より下の余りに光線や壁の切れ目を見せない
 	bar.draw_line(Vector2(B.FIELD_LEFT, B.FIELD_TOP), Vector2(B.FIELD_RIGHT, B.FIELD_TOP), Kit.C_EDGE, 1.0)
 	if _snap.is_empty():
 		return
