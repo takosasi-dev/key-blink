@@ -1,5 +1,6 @@
 # 画面の切り替え(S0〜S5)・入力の振り分け・保存・自動の一時停止を受け持つ。ゲームの決まりは持たない(INV-1)。
-# ?keys=1(または --keys)でキーの確かめの画面(共通 §3 の 22)。--auto=idle|dodge|under は窓なしの smoke 用で、
+# ?keys=1(または --keys)でキーの確かめの画面(共通 §3 の 22)、?debug=1 で window.kbState に状態を出す(Web の確かめが読む)。
+# --auto=idle|dodge|under(Web では ?debug=1&auto=dodge)は自動の確かめ用で、
 # S0 → 今日のステージ → 結果まで bot に遊ばせ、画面が変わるたびに「SMOKE screen=...」を印字する。作りは KeySwat・RootCall の ui/main.gd。
 extends Node
 
@@ -33,6 +34,11 @@ var _keys_label: Label = null
 var _visibility_cb: Variant = null
 var _settings_overlay: Control = null
 var _esc_count := 0
+var debug := false
+var lat_ms: Array = []  # 押してから新しい場所を描くまで(NFR-2)
+var frame_ms: Array = []
+var _last_frame := 0
+var _blinks_drawn := 0
 
 
 func _ready() -> void:
@@ -42,14 +48,26 @@ func _ready() -> void:
 	var bg := ColorRect.new()
 	bg.color = Kit.C_BG
 	stage.add_child(Kit.place(bg, -2000, -2000, 5280, 4720))
+	get_viewport().size_changed.connect(_center)
+	_center()
 	store = Store.new()
 	_apply_settings()
 	keys_mode = _flag("keys")
+	debug = _flag("debug")
 	for a: String in OS.get_cmdline_user_args():
 		if a.begins_with("--auto="):
 			auto = a.substr(7)
+	if debug and OS.has_feature("web"):
+		var q: Variant = JavaScriptBridge.eval("new URLSearchParams(location.search).get('auto') || ''", true)
+		auto = q if q is String else ""
+	RenderingServer.frame_post_draw.connect(_after_draw)
 	_watch_visibility()
 	_show_gate()
+
+
+# 1280×720 を窓の真ん中に置く(project.godot は aspect=expand。余りは黒でなく背景色で埋まる。共通 §3 の 1)。
+func _center() -> void:
+	stage.position = ((get_viewport().get_visible_rect().size - stage.size) / 2.0).round()
 
 
 static func _flag(flag: String) -> bool:
@@ -146,8 +164,8 @@ func _process(_delta: float) -> void:
 		_input(k)
 	elif screen == "title":
 		_on_title("daily")
-	elif screen == "result":
-		get_tree().quit()
+	elif screen == "result" and not OS.has_feature("web"):
+		get_tree().quit()  # Web の自動の確かめ(?auto=)は結果で止めて絵を撮らせる(quit すると音の仕組みが落ちてエラーになる)
 
 
 # --- S1 タイトル ---
@@ -273,7 +291,7 @@ func _show_settings(from: String) -> void:
 		pause_view.process_mode = Node.PROCESS_MODE_DISABLED
 		var dim := ColorRect.new()
 		dim.color = Color(Kit.C_BG, 0.96)
-		s.add_child(Kit.place(dim, 0, 0, 1280, 720))
+		s.add_child(Kit.place(dim, -2000, -2000, 5280, 4720))
 		s.move_child(dim, 0)
 		stage.add_child(s)
 		_settings_overlay = s
@@ -333,3 +351,61 @@ func _log_key(ev: InputEventKey) -> void:
 		"unicode": ev.unicode, "echo": ev.echo, "shift": ev.shift_pressed, "ctrl": ev.ctrl_pressed, "alt": ev.alt_pressed, "meta": ev.meta_pressed})
 	if key_log.size() > 40:
 		key_log.pop_front()
+
+
+# --- デバッグ用の窓口(読むだけ。?debug=1 の時だけ Web へ出す) ---
+
+func _after_draw() -> void:
+	var now := Time.get_ticks_usec()
+	if _last_frame > 0 and frame_ms.size() < 20000:
+		frame_ms.append((now - _last_frame) / 1000.0)
+	_last_frame = now
+	if play != null and play.sim != null and play.sim.blinks != _blinks_drawn:
+		_blinks_drawn = play.sim.blinks
+		if play.key_at > 0 and lat_ms.size() < 2000:
+			lat_ms.append((now - play.key_at) / 1000.0)
+		play.key_at = 0
+	if not debug:
+		return
+	var st := JSON.stringify(state())  # ヘッドレスの smoke(--debug)でも毎フレーム作り、壊れないことを確かめる
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.kbState=" + JSON.stringify(st), true)
+		if frame_ms.size() % 60 == 0:
+			JavaScriptBridge.eval("window.kbStats=" + JSON.stringify(JSON.stringify(stats())), true)
+
+
+func state() -> Dictionary:
+	var out := {"screen": screen, "paused": pause_view != null, "frames": Engine.get_frames_drawn(), "ms": Time.get_ticks_msec(), "keys": key_log.slice(maxi(key_log.size() - 20, 0)),
+		"buttons": {}, "sfx": Sfx.played, "sfx_last": Sfx.last, "unlocked": Sfx.unlocked, "lat_n": lat_ms.size(),
+		"save_failed": store.write_failed, "load_failed": store.load_failed}
+	var root: Control = pause_view if pause_view != null and pause_view.visible else current
+	if root != null:
+		for b in root.find_children("*", "Button", true, false):
+			var btn := b as Button
+			if btn.is_visible_in_tree() and not btn.disabled:
+				out["buttons"][String(btn.name)] = [btn.global_position.x - stage.position.x + btn.size.x / 2, btn.global_position.y - stage.position.y + btn.size.y / 2]  # 1280×720 の座標
+	if play != null and play.sim != null:
+		var sim := play.sim
+		var lasers := [0, 0]
+		for e: Dictionary in sim.enemies:
+			if int(e["kind"]) == Sim.PILLAR and int(e["lp"]) in [Sim.L_WARN, Sim.L_FIRE]:
+				lasers[int(e["lp"])] += 1
+		out["play"] = {"tick": sim.tick, "wave": sim.wave(), "key": sim.key, "lives": sim.lives, "power": sim.power,
+			"cooldown": sim.cooldown, "invuln": sim.invuln, "score": sim.score, "over": sim.over, "blinks": sim.blinks,
+			"grazes": sim.grazes, "kills": sim.kills, "bullets": sim.bx.size(), "enemies": sim.enemies.size(),
+			"kinds": sim.enemies.map(func(e: Dictionary) -> int: return int(e["kind"])), "walls": sim.walls.size(),
+			"warn": lasers[0], "fire": lasers[1], "pos": [play.position.x, play.position.y]}
+	return out
+
+
+func stats() -> Dictionary:
+	return {"lat": _pct(lat_ms), "frame": _pct(frame_ms)}
+
+
+@warning_ignore("integer_division")
+static func _pct(list: Array) -> Dictionary:
+	if list.is_empty():
+		return {"n": 0}
+	var s := list.duplicate()
+	s.sort()
+	return {"n": s.size(), "p50": s[s.size() / 2], "p95": s[mini(int(ceil(s.size() * 0.95)) - 1, s.size() - 1)], "max": s[-1]}

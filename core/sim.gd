@@ -480,10 +480,36 @@ func _finish(why: int) -> void:
 
 # 描画用。配列は sim の物をそのまま渡す(ui は書き換えない)。
 func snapshot() -> Dictionary:
+	var next_shot := PackedInt32Array()
+	for e in enemies:
+		next_shot.append(ticks_to_shot(e))
 	return {"key": key, "x": ship_x, "y": ship_y, "power": power, "strength": strength_of(power), "cooldown": cooldown,
 		"invuln": invuln, "pending": pending, "lives": lives, "score": score, "wave": wave(), "tick": tick,
-		"enemies": enemies, "bx": bx, "by": by, "walls": walls, "shot_x": shot_x, "shot_y": shot_y, "shot_p": shot_p,
-		"kills": kills, "grazes": grazes, "blinks": blinks, "over": over, "reason": reason}
+		"enemies": enemies, "next_shot": next_shot, "bx": bx, "by": by, "bvx": bvx, "bvy": bvy, "walls": walls,
+		"shot_x": shot_x, "shot_y": shot_y, "shot_p": shot_p, "kills": kills, "grazes": grazes, "blinks": blinks,
+		"over": over, "reason": reason}
+
+
+# 読むだけ(ui の撃つ前の合図に使う。2026-11-20 磨きで足した): この敵が弾を撃つのは何 step 後か。撃たないなら -1。
+# 決まりは _enemy_step・_arrive・_act のまま(小物は着いた step と、波 5 から 150 tick 後。扇は着いてから FAN_EVERY ごと)。
+@warning_ignore("integer_division")
+func ticks_to_shot(e: Dictionary) -> int:
+	var kind: int = e["kind"]
+	var phase: int = e["phase"]
+	if phase == RETURN or (kind != SMALL and kind != FAN):
+		return -1
+	if phase == DESCEND:
+		var v := B.ENEMY_SPEED / B.TICK_HZ
+		var arrive := maxi(int((float(e["stop_y"]) - float(e["y"]) + v - 0.000001) / v), 1)  # 切り上げ
+		return arrive if kind == SMALL else arrive + B.FAN_EVERY
+	var t: int = e["t"]
+	if kind == FAN:
+		return B.FAN_EVERY - t % B.FAN_EVERY
+	if t >= B.SMALL_SECOND_SHOT:
+		return -1
+	var n := B.SMALL_SECOND_SHOT - t
+	var w := mini((tick + n - 1) / B.WAVE_TICKS + 1, B.WAVES)  # 撃つ step の波
+	return n if w >= B.SMALL_SECOND_SHOT_WAVE else -1
 
 
 func result() -> Dictionary:

@@ -29,18 +29,18 @@ func build(result: Dictionary, rec: Dictionary, share_text: String) -> void:
 	var head: String = S.RES_CLEAR % int(result["lives"]) if result["clear"] else S.RES_WAVE % int(result["wave"])
 	add_child(Kit.place(Kit.label(head, 32, Kit.C_GOOD if result["clear"] else Kit.C_DIM, 700), 0, 24, 1280, 48))
 	_points_label = Kit.label(S.RES_POINTS % "0", 96, Kit.C_TEXT, 800)
-	add_child(Kit.place(_points_label, 0, 72, 1280, 120))
+	add_child(Kit.place(_points_label, 0, 64, 1280, 120))
 	if rec["prev_best"] != null:
 		var diff := _points - int(rec["prev_best"]["score"])
 		var text: String = S.RES_NEW_BEST % Score.comma(diff) if rec["new_best"] else S.RES_TO_BEST % Score.comma(-diff)
-		add_child(Kit.place(Kit.label(text, 24, Kit.C_GOOD if rec["new_best"] else Kit.C_DIM, 700), 0, 196, 1280, 36))
+		add_child(Kit.place(Kit.label(text, 24, Kit.C_GOOD if rec["new_best"] else Kit.C_DIM, 700), 0, 202, 1280, 36))
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 48)
 	for s: String in [S.RES_WAVES % int(result["wave"]), S.RES_KILLS % int(result["kills"]),
 			S.RES_GRAZES % int(result["grazes"]), S.RES_BLINKS % int(result["blinks"])]:
 		row.add_child(Kit.label(s, 24, Kit.C_TEXT, 500))
-	add_child(Kit.place(row, 0, 248, 1280, 44))
+	add_child(Kit.place(row, 0, 252, 1280, 44))
 	_retry = Kit.place(Kit.button("retry", S.B_RETRY, 30), 490, 316, 300, 72)
 	_retry.disabled = true
 	add_child(_retry)

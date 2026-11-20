@@ -30,7 +30,7 @@ func burst(at: Vector2, color: Color) -> void:
 
 
 func float_text(at: Vector2, text: String) -> void:
-	floats.append([_now(), at, text])
+	floats.append([_now(), Vector2(at.x, maxf(at.y, B.FIELD_TOP + 60.0)), text])  # 上の帯に隠れない高さから
 	while floats.size() > B.FLOATS_MAX:
 		floats.pop_front()
 

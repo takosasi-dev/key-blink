@@ -55,6 +55,7 @@ def main() -> int:
         return godot(["--script", "res://tests/run_tests.gd", "--", *rest], timeout=900)
     if cmd == "export":
         (ROOT / "build" / "web").mkdir(parents=True, exist_ok=True)
+        (ROOT / "build" / ".gdignore").touch()  # 撮った PNG や書き出した物を Godot に取り込ませない
         return godot(["--export-release", "Web", "build/web/index.html"])
     if cmd == "smoke":  # 本体を窓なしで動かし、S0 → 今日のステージ → 結果まで bot に通させる。結果の行が出なければ失敗
         frames = rest[0] if rest else "7000"

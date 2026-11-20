@@ -3,7 +3,7 @@
 extends RefCounted
 
 const NAME := "KeyBlink"
-const VERSION := "v0.1.0"
+const VERSION := "v0.2.0"
 const URL := "https://takosasi-dev.github.io/key-blink/"
 
 # S0(共通 §6)

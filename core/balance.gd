@@ -136,3 +136,15 @@ const RETRY_LOCK_MS := 300
 const IME_NOTE_MS := 3000
 const BLINK_INVULN_MS := 100  # 無敵の間の点滅の周期の半分
 const REDUCED_FLASH_ALPHA := 0.2
+
+# 磨きで足した演出(2026-11-20。遊びの決まりは変えない)。ms・tick・不透明度
+const TELL_TICKS := 36  # 小物・扇が撃つ前の「ため」の合図を出し始める(撃つ何 tick 前から)
+const TRAIL_TICKS := 3.0  # 敵の弾の尾の長さ(何 tick ぶん後ろまで)
+const HIT_STOP_MS := 90  # 当たった時に止める時間
+const HIT_MARK_MS := 500  # 当たった所に広がる輪
+const HIT_TINT_MS := 300  # 当たった時の画面の赤み
+const HIT_TINT_ALPHA := 0.3
+const HIT_TINT_ALPHA_REDUCED := 0.12  # 点滅を弱める時(共通 §3 の 17: 20% 以下)
+const WARN_FILL_ALPHA := [0.04, 0.16]  # 柱の予告の帯の塗り(出始め → 光線の直前)
+const DEMO_MS := 700  # タイトルの盤で自機が跳ぶ間隔
+const DEMO_KEYS := [16, 2, 25, 19, 13, 7, 21, 11, 28, 13]  # タイトルの盤で跳ぶ順(J E N ; F U X S . F)

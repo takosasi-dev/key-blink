@@ -1,6 +1,6 @@
 # 遊ぶ場所の描画(仕様書 §9.1・画面設計書 §3・§8)。sim.snapshot() の中身を形で描くだけ(INV-1)。
 # 敵の種類は形で分ける(小物 = ひし形、扇 = 縁の太い円と 5 本の線、柱 = 下向きの三角、壁の敵 = 横長の四角。NFR-11)。
-# 跳んだ時の残像・キーの枠の光・敵の白い光は、play が時刻(ms)を書き込み、ここで時刻から描く。
+# 跳んだ時の残像・キーの枠の光・敵の白い光・当たった所の輪は、play が時刻(ms)を書き込み、ここで時刻から描く。
 extends Control
 
 const B := preload("res://core/balance.gd")
@@ -16,19 +16,25 @@ const SHOT_LEN := 16.0
 var snap: Dictionary = {}
 var reduce_flash := false
 var bare := false  # 背景と外側を描かない(タイトルの薄い盤)
+var line_k := 1.0  # 線の太さの倍率(タイトルの縮めた盤で線が消えないように)
 var key_glow_at: Array[int] = []
 var hit_at := {}  # 敵の id → 白く光らせた時刻
 var ghost_key := -1
+var ghost_to := -1
 var ghost_at := -100000
 var ring_glow_at := -100000
+var hit_mark_at := -100000
+var hit_mark := Vector2.ZERO
 var now_ms := 0  # 描く時刻(テストが固定できるように持つ)
 var draws := 0  # 描いた回数(smoke が読む)
+var key_state: Array[int] = []  # 最後に描いたキーの印(0 = 無し、1 = 光線が当たる、2 = 壁の隙間。テストが読む)
 
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for k in Keys.COUNT:
 		key_glow_at.append(-100000)
+		key_state.append(0)
 
 
 # タイトルに薄く出す盤(自機は F)。
@@ -45,18 +51,25 @@ func _draw() -> void:
 		return
 	var now := now_ms if now_ms > 0 else Time.get_ticks_msec()
 	if not bare:
-		draw_rect(Rect2(0, 0, B.FIELD_LEFT, 720), Kit.C_OUT)
-		draw_rect(Rect2(B.FIELD_RIGHT, 0, 1280 - B.FIELD_RIGHT, 720), Kit.C_OUT)
+		# 遊ぶ場所の外は 1 段暗く(窓の余りの部分まで)
+		draw_rect(Rect2(-2000, -2000, 2000 + B.FIELD_LEFT, 4720), Kit.C_OUT)
+		draw_rect(Rect2(B.FIELD_RIGHT, -2000, 2000 + 1280 - B.FIELD_RIGHT, 4720), Kit.C_OUT)
 	_lasers()
 	_keys(now)
 	_walls()
-	for e: Dictionary in snap["enemies"]:
-		_enemy(e, now)
+	var ns: PackedInt32Array = snap.get("next_shot", PackedInt32Array())
+	var enemies: Array = snap["enemies"]
+	for i in enemies.size():
+		_enemy(enemies[i], now)
+		if i < ns.size() and ns[i] > 0 and ns[i] <= B.TELL_TICKS:
+			_tell(enemies[i], ns[i])
 	_shots()
 	_bullets()
 	_ship(now)
+	_hit_mark(now)
 
 
+# キーの枠。光線が当たるキーは柱の色、壁の隙間に入るキーは緑の線にする(枠は線だけ。中は塗らない)。
 func _keys(now: int) -> void:
 	var f := Kit.font(700)
 	var cur: int = snap["key"]
@@ -64,14 +77,36 @@ func _keys(now: int) -> void:
 		var c := Vector2(Keys.x_of(k), Keys.y_of(k))
 		var r := Rect2(c - Vector2(KEY_BOX, KEY_BOX) / 2.0, Vector2(KEY_BOX, KEY_BOX))
 		var a := 0.8 if k == cur else 0.35
-		var g := now - key_glow_at[k]
+		var col := Kit.C_KEY_EDGE
 		var width := 1.0
+		key_state[k] = _key_mark(c)
+		if key_state[k] == 1:
+			col = Kit.C_PILLAR
+			a = maxf(a, 0.9)
+			width = 2.0
+		elif key_state[k] == 2:
+			col = Kit.C_GOOD
+			a = maxf(a, 0.6)
+			width = 2.0
+		var g := now - key_glow_at[k]
 		if g >= 0 and g < B.KEY_GLOW_MS:
 			a = 1.0
 			width = 3.0
-		_round_rect(r, Color(Kit.C_KEY_EDGE, a), width)
-		draw_string(f, Vector2(r.position.x + 8, r.position.y + 24), Keys.LABELS[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 20,
-			Color(Kit.C_KEY_EDGE, a))
+		_round_rect(r, Color(col, a), width * line_k)
+		draw_string(f, Vector2(r.position.x + 8, r.position.y + 24), Keys.LABELS[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(col, a))
+
+
+# このキーの場所に、予告中・撃っている柱の光線が当たるか(1)、まだ通り過ぎていない壁の隙間に入るか(2)。当たりの式は core のもの。
+func _key_mark(c: Vector2) -> int:
+	for e: Dictionary in snap["enemies"]:
+		if int(e["kind"]) == Sim.PILLAR and int(e["lp"]) in [Sim.L_WARN, Sim.L_FIRE] and Sim.laser_hits(e, c.x, c.y, B.SHIP_R):
+			return 1
+	for w: Dictionary in snap["walls"]:
+		if float(w["y"]) <= c.y + B.SHIP_R:
+			var at_row := {"y": c.y - B.WALL_H / 2.0, "gx": w["gx"]}  # 壁がこの段に来た時
+			if not Sim.wall_hits(at_row, c.x, c.y, B.SHIP_R):
+				return 2
+	return 0
 
 
 # 角の丸い四角の線(角は 8 px)。
@@ -89,6 +124,7 @@ func _round_rect(r: Rect2, color: Color, width: float) -> void:
 	draw_arc(p + Vector2(rad, s.y - rad), rad, PI * 0.5, PI, 6, color, width, true)
 
 
+# 柱: 予告は帯の両端の点線と、光線に近づくほど濃くなる薄い塗り。光線は帯。
 func _lasers() -> void:
 	for e: Dictionary in snap["enemies"]:
 		if int(e["kind"]) != Sim.PILLAR:
@@ -98,6 +134,9 @@ func _lasers() -> void:
 		var half := B.LASER_W / 2.0
 		match int(e["lp"]):
 			Sim.L_WARN:
+				var k := clampf(1.0 - float(e["lt"]) / B.LASER_WARN, 0.0, 1.0)
+				var fill: float = lerpf(B.WARN_FILL_ALPHA[0], B.WARN_FILL_ALPHA[1], k)
+				draw_rect(Rect2(x - half, y0, B.LASER_W, B.FIELD_BOTTOM - y0), Color(Kit.C_PILLAR, fill))
 				for ex: float in [x - half, x + half]:
 					draw_dashed_line(Vector2(ex, y0), Vector2(ex, B.FIELD_BOTTOM), Kit.C_PILLAR, 2.0, 10.0)
 			Sim.L_FIRE:
@@ -149,11 +188,32 @@ func _enemy(e: Dictionary, now: int) -> void:
 			draw_rect(r, col, false, w)
 
 
+# 撃つ前の「ため」: 敵のまわりに縮んでいく輪と、撃つ向き(今の自機へ向けた向き。扇は 5 本)の短い線。n は撃つまでの tick。
+func _tell(e: Dictionary, n: int) -> void:
+	var k := 1.0 - float(n - 1) / B.TELL_TICKS  # 0 → 1(撃つ step で 1)
+	var c := Vector2(float(e["x"]), float(e["y"]))
+	var er: float = e["r"]
+	draw_arc(c, er + 4.0 + 20.0 * (1.0 - k), 0.0, TAU, 32, Color(Kit.C_BULLET, 0.25 + 0.6 * k), 2.0, true)
+	var to := Vector2(float(snap["x"]), float(snap["y"])) - c
+	var dir := to.normalized() if to.length() > 0.0 else Vector2.DOWN
+	var degs: Array = [0] if int(e["kind"]) == Sim.SMALL else B.FAN_DEG
+	for d: int in degs:
+		var v := dir.rotated(deg_to_rad(d))
+		draw_line(c + v * (er + 6.0), c + v * (er + 26.0 + 40.0 * k), Color(Kit.C_BULLET, 0.55 * k), 2.0, true)
+
+
+# 敵の弾: 縁の白い円と、進む向きの後ろに短い尾(TRAIL_TICKS ぶん)。速い弾の向きが止めた絵でも分かるように。
 func _bullets() -> void:
 	var bx: PackedFloat64Array = snap["bx"]
 	var by: PackedFloat64Array = snap["by"]
+	var vx: PackedFloat64Array = snap.get("bvx", PackedFloat64Array())
+	var vy: PackedFloat64Array = snap.get("bvy", PackedFloat64Array())
+	var tail := vx.size() == bx.size()
 	for i in bx.size():
 		var p := Vector2(bx[i], by[i])
+		if tail:
+			var back := p - Vector2(vx[i], vy[i]) * B.TRAIL_TICKS
+			draw_line(back, p, Color(Kit.C_BULLET, 0.45), B.BULLET_R * 1.4, true)
 		draw_circle(p, B.BULLET_R, Kit.C_WHITE)
 		draw_circle(p, B.BULLET_R - 2.0, Kit.C_BULLET)
 
@@ -170,13 +230,18 @@ func _ship(now: int) -> void:
 	var c := Vector2(float(snap["x"]), float(snap["y"]))
 	var g := now - ghost_at
 	if ghost_key >= 0 and g >= 0 and g < B.GHOST_MS:
-		_triangle(Vector2(Keys.x_of(ghost_key), Keys.y_of(ghost_key)), Color(Kit.C_SHIP, 0.5 * (1.0 - float(g) / B.GHOST_MS)))
+		var fade := 1.0 - float(g) / B.GHOST_MS
+		var from := Vector2(Keys.x_of(ghost_key), Keys.y_of(ghost_key))
+		if ghost_to >= 0:
+			# 跳んだ筋(一瞬で移ったことが見えるように、元の場所から新しい場所へ細い線)
+			draw_line(from, Vector2(Keys.x_of(ghost_to), Keys.y_of(ghost_to)), Color(Kit.C_SHIP, 0.35 * fade), 3.0 * line_k, true)
+		_triangle(from, Color(Kit.C_SHIP, 0.5 * fade))
 	var invuln: int = snap["invuln"]
 	var visible_now := invuln <= 0 or (now / B.BLINK_INVULN_MS) % 2 == 0
 	var power: int = snap["power"]
 	var glow := now - ring_glow_at
 	var ring_c := Kit.C_WHITE if glow >= 0 and glow < B.RING_GLOW_MS else Kit.C_SHIP
-	draw_arc(c, RING_R, 0.0, TAU, 40, Color(Kit.C_SHIP, 0.15), 2.0, true)
+	draw_arc(c, RING_R, 0.0, TAU, 40, Color(Kit.C_SHIP, 0.15), 2.0 * line_k, true)
 	if power > 0:
 		var ring_w := 2.0 + 1.5 * (int(snap["strength"]) - 1)
 		draw_arc(c, RING_R, -PI / 2.0, -PI / 2.0 + TAU * power / B.POWER_MAX, 40, ring_c, ring_w, true)
@@ -186,6 +251,15 @@ func _ship(now: int) -> void:
 	if visible_now:
 		_triangle(c, Kit.C_SHIP)
 	draw_circle(c, B.SHIP_R, Kit.C_WHITE)  # 当たりの点は常に見せる
+
+
+# 当たった所に広がる赤い輪(何に当たったかを目で追えるように)。
+func _hit_mark(now: int) -> void:
+	var g := now - hit_mark_at
+	if g < 0 or g >= B.HIT_MARK_MS:
+		return
+	var k := float(g) / B.HIT_MARK_MS
+	draw_arc(hit_mark, 10.0 + 50.0 * k, 0.0, TAU, 40, Color(Kit.C_BULLET, 1.0 - k), 4.0 * (1.0 - k) + 1.0, true)
 
 
 func _triangle(c: Vector2, col: Color) -> void:

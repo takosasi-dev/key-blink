@@ -1,27 +1,35 @@
 # S1 タイトル(画面設計書 §2)。入口 2 つ(今日のステージ・練習)と設定、記録、下に 30 キーの枠を薄く(自機は F)。
+# 薄い盤の自機は、DEMO_MS ごとに決まった順でキーへ跳んで見せる(遊び方を言葉でなく見せる。2026-11-20 磨きで足した)。
 extends Control
 
 signal chosen(what: String)  # "daily" / "practice" / "settings"
 
+const B := preload("res://core/balance.gd")
 const S := preload("res://core/strings.gd")
+const Keys := preload("res://core/keys.gd")
 const Score := preload("res://core/score.gd")
 const Kit := preload("res://ui/kit.gd")
 const Menu := preload("res://ui/menu.gd")
 const Field := preload("res://ui/field.gd")
 
 var menu: Menu
+var faint: Field  # 薄い盤
+var demo_i := 0  # 次に跳ぶ DEMO_KEYS の番号
+var _demo_at := 0
 
 
 # store は save_store、day は通し日数、date は "2026-11-19"。
 func build(store: RefCounted, day: int, date: String) -> void:
 	size = Vector2(1280, 720)
-	var faint := Field.new()
+	faint = Field.new()
 	faint.snap = Field.title_snap()
 	faint.bare = true
-	faint.modulate.a = 0.5
-	faint.scale = Vector2(0.5, 0.5)
-	Kit.place(faint, 320, 340, 1280, 720)
+	faint.line_k = 1.8  # 0.6 倍に縮めても線が切れないように
+	faint.modulate.a = 0.6
+	faint.scale = Vector2(0.6, 0.6)
+	Kit.place(faint, 256, 296, 1280, 720)
 	add_child(faint)
+	_demo_at = Time.get_ticks_msec()
 	add_child(Kit.place(Kit.label(S.NAME, 72, Kit.C_TEXT, 800), 0, 20, 1280, 100))
 	add_child(Kit.place(Kit.label(S.TAGLINE, 28, Kit.C_DIM, 500), 0, 116, 1280, 44))
 	if store.load_failed:
@@ -53,6 +61,28 @@ func _note(text: String, by: Button) -> void:
 	var l := Kit.label(text, 20, Kit.C_DIM, 500)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	add_child(Kit.place(l, by.position.x + by.size.x + 24, by.position.y, 560, by.size.y))
+
+
+func _process(_delta: float) -> void:
+	var now := Time.get_ticks_msec()
+	if now - _demo_at >= B.DEMO_MS:
+		_demo_at = now
+		demo_step(now)
+	faint.queue_redraw()
+
+
+# 薄い盤の自機を次のキーへ跳ばせる(残像・跳んだ筋・キーの光はプレイと同じ描き方)。
+func demo_step(now: int) -> void:
+	var to: int = B.DEMO_KEYS[demo_i % B.DEMO_KEYS.size()]
+	demo_i += 1
+	var from: int = faint.snap["key"]
+	faint.ghost_key = from
+	faint.ghost_to = to
+	faint.ghost_at = now
+	faint.key_glow_at[to] = now
+	faint.snap["key"] = to
+	faint.snap["x"] = Keys.x_of(to)
+	faint.snap["y"] = Keys.y_of(to)
 
 
 func key(ev: InputEventKey) -> void:

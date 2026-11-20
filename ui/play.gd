@@ -1,6 +1,6 @@
 # S2 プレイ(画面設計書 §3)。sim をたまった時間ぶん進め(1 フレーム 8 tick まで)、events で演出と音を出し、snapshot を field に渡す。
 # ゲームの決まりは持たない(INV-1)。押したキーは ui/keymap で番号にして sim.queue_press に渡すだけ。
-# 上の帯(点・波と残り時間・力の 5 つの四角・残機の三角)は _draw とラベルで描く。
+# 上の帯(点・波と残り時間・力の 5 つの四角・残機の三角)は bar とラベルで描く。帯は遊ぶ場所より上に重ね、入ってくる敵を帯の下に隠す。
 extends Control
 
 signal finished(result: Dictionary)
@@ -39,6 +39,11 @@ var _note: Label
 var _clear: Label
 var _ime: Label
 var _snap: Dictionary = {}
+var bar: Control  # 上の帯(背景と、力・残機の絵)
+var tint: ColorRect  # 当たった時の画面の赤み
+var _tint_at := -100000
+var _stop_until := 0  # 当たった時の短い止め(この時刻まで step しない)
+var key_at := 0  # 跳ぶキーを受けた時刻(usec。押してから描くまでを main が測る)
 
 
 func _ready() -> void:
@@ -49,6 +54,14 @@ func _ready() -> void:
 	fx = Fx.new()
 	Kit.place(fx, 0, 0, 1280, 720)
 	add_child(fx)
+	tint = ColorRect.new()
+	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tint.color = Color(Kit.C_BULLET, 0.0)
+	add_child(Kit.place(tint, -2000, -2000, 5280, 4720))
+	bar = Control.new()
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.draw.connect(_draw_bar)
+	add_child(Kit.place(bar, 0, 0, 1280, 720))
 	var esc := Kit.place(Kit.button("Esc", S.ESC, 18), 24, 12, 72, 40)
 	esc.pressed.connect(func() -> void: pause_requested.emit())
 	add_child(esc)
@@ -91,6 +104,8 @@ func key(ev: InputEventKey) -> void:
 		return
 	var k := Keymap.index_of(ev)
 	if k >= 0:
+		if sim.cooldown == 0 and k != sim.key:
+			key_at = Time.get_ticks_usec()
 		sim.queue_press(k)
 
 
@@ -105,6 +120,9 @@ func _process(delta: float) -> void:
 	_clear.visible = now < _clear_until
 	_ime.visible = now < _ime_until
 	fx.tick()
+	var tk := float(now - _tint_at) / B.HIT_TINT_MS
+	var peak := B.HIT_TINT_ALPHA_REDUCED if reduce_flash else B.HIT_TINT_ALPHA
+	tint.color.a = peak * (1.0 - tk) if tk >= 0.0 and tk < 1.0 else 0.0
 	field.queue_redraw()
 	if _over_at >= 0:
 		if now - _over_at >= _over_wait:
@@ -113,6 +131,9 @@ func _process(delta: float) -> void:
 		return
 	if paused or _over_at == -2:
 		return  # 一時停止の間は step を呼ばず、たまった時間も持たない(AC-19)
+	if now < _stop_until:
+		_acc = 0.0
+		return  # 当たった時の短い止め(止めた分の時間は持ち越さない)
 	_acc += delta * B.TICK_HZ
 	var n := int(_acc)
 	_acc -= n
@@ -137,6 +158,7 @@ func on_event(e: Dictionary, heard: Dictionary) -> void:
 	match t:
 		"blink":
 			field.ghost_key = int(e["from"])
+			field.ghost_to = int(e["to"])
 			field.ghost_at = now
 			field.key_glow_at[int(e["to"])] = now
 		"power_up":
@@ -155,6 +177,10 @@ func on_event(e: Dictionary, heard: Dictionary) -> void:
 		"hit":
 			fx.burst(Vector2(float(e["x"]), float(e["y"])), Kit.C_SHIP)
 			_shake(B.SHAKE_HIT_PX, B.SHAKE_HIT_MS)
+			field.hit_mark = Vector2(float(e["x"]), float(e["y"]))
+			field.hit_mark_at = now
+			_tint_at = now
+			_stop_until = now + B.HIT_STOP_MS
 		"wave_start":
 			_note.text = S.WAVE_NOTE % int(e["wave"])
 			_wave_until = now + B.WAVE_NOTE_MS
@@ -185,28 +211,30 @@ func _refresh() -> void:
 	field.snap = _snap
 	_points.text = S.BAR_POINTS % Score.comma(int(_snap["score"]))
 	_wave.text = S.BAR_WAVE % [int(_snap["wave"]), Score.remain_text(int(_snap["tick"]))]
-	queue_redraw()
+	bar.queue_redraw()
 
 
 # 上の帯の右: 「力」と 5 つの四角(力 200 ごとに 1 つ塗る。強さ 2・3 で縁を太く)、残機の三角(失った物は線だけ)。
 @warning_ignore("integer_division")
-func _draw() -> void:
+func _draw_bar() -> void:
+	bar.draw_rect(Rect2(-2000, -2000, 5280, 2000 + B.FIELD_TOP), Kit.C_OUT)
+	bar.draw_line(Vector2(B.FIELD_LEFT, B.FIELD_TOP), Vector2(B.FIELD_RIGHT, B.FIELD_TOP), Kit.C_EDGE, 1.0)
 	if _snap.is_empty():
 		return
 	var f := Kit.font(700)
 	var power: int = _snap["power"]
 	var strength: int = _snap["strength"]
-	draw_string(f, Vector2(860, 42), S.BAR_POWER, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Kit.C_DIM)
+	bar.draw_string(f, Vector2(860, 42), S.BAR_POWER, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Kit.C_DIM)
 	for k in 5:
 		var r := Rect2(892 + k * 26, 20, 20, 20)
 		if power >= (k + 1) * (B.POWER_MAX / 5):
-			draw_rect(r, Kit.C_SHIP)
-		draw_rect(r, Kit.C_SHIP, false, 1.0 + 1.5 * (strength - 1))
+			bar.draw_rect(r, Kit.C_SHIP)
+		bar.draw_rect(r, Kit.C_SHIP, false, 1.0 + 1.5 * (strength - 1))
 	var lives: int = _snap["lives"]
 	for k in B.LIVES:
 		var c := Vector2(1060 + k * 34, 32)
 		var pts := PackedVector2Array([c + Vector2(0, -12), c + Vector2(11, 10), c + Vector2(-11, 10), c + Vector2(0, -12)])
 		if k < lives:
-			draw_colored_polygon(pts.slice(0, 3), Kit.C_SHIP)
+			bar.draw_colored_polygon(pts.slice(0, 3), Kit.C_SHIP)
 		else:
-			draw_polyline(pts, Kit.C_DIM, 1.5, true)
+			bar.draw_polyline(pts, Kit.C_DIM, 1.5, true)
