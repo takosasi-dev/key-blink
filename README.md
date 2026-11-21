@@ -72,7 +72,7 @@ godot --headless --export-release "Web" build/web/index.html
 
 # 窓なしで本体を動かし、S0 → 今日のステージ → 結果まで bot に通させる(Python)
 python tools/gd.py smoke 7000 --auto=idle
-python tools/gd.py smoke 16000 --auto=dodge   # クリアまで。当たった時の止めは実時間なので、速い機械ほどフレームを多く使う
+python tools/gd.py smoke 16000 --auto=dodge   # クリアまで(13000 では波 12 の途中で切れる事があった)
 
 # bot 3 種の結果を種 1〜10 で出す
 python tools/gd.py run res://tools/bot_report.gd
