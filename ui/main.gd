@@ -2,6 +2,8 @@
 # ?keys=1(または --keys)でキーの確かめの画面(共通 §3 の 22)、?debug=1 で window.kbState に状態を出す(Web の確かめが読む)。
 # --auto=idle|dodge|under(Web では ?debug=1&auto=dodge)は自動の確かめ用で、
 # S0 → 今日のステージ → 結果まで bot に遊ばせ、画面が変わるたびに「SMOKE screen=...」を印字する。作りは KeySwat・RootCall の ui/main.gd。
+# 画面の切り替わり(v0.3.0)は見た目だけ: screen と current はその場で替え、まぶた(ui/lids.gd)が開いて新しい画面を見せる。
+# 1280×720 の舞台は窓の真ん中に置き、余りは背景(藍の夜)で埋める(共通 §3 の 1)。
 extends Node
 
 const B := preload("res://core/balance.gd")
@@ -17,6 +19,9 @@ const Title := preload("res://ui/title.gd")
 const Result := preload("res://ui/result.gd")
 const Settings := preload("res://ui/settings.gd")
 const Pause := preload("res://ui/pause.gd")
+const Backdrop := preload("res://ui/backdrop.gd")
+const Lids := preload("res://ui/lids.gd")
+const Logo := preload("res://ui/logo.gd")
 
 var stage: Control
 var store: Store
@@ -30,6 +35,10 @@ var keys_mode := false
 var auto := ""  # smoke の bot(idle / dodge / under)。空なら人が遊ぶ
 var key_log: Array = []  # 届いたキーの中身(直近 40 個。キーの確かめが読む)
 var _touch_note: Label = null
+var backdrop: Backdrop
+var lids: Lids
+var view := Rect2(0, 0, 1280, 720)  # 舞台の座標で、窓に見えている範囲
+var entering: Array = []  # [板, 始めた時刻(ms), 長さ(ms), 上がる幅(px)]。一時停止・設定の板が出る動き
 var _keys_label: Label = null
 var _visibility_cb: Variant = null
 var _settings_overlay: Control = null
@@ -45,12 +54,13 @@ func _ready() -> void:
 	stage = Control.new()
 	stage.size = Vector2(1280, 720)
 	add_child(stage)
-	var bg := ColorRect.new()
-	bg.color = Kit.C_BG
-	stage.add_child(Kit.place(bg, -2000, -2000, 5280, 4720))
+	backdrop = Backdrop.new()
+	stage.add_child(Kit.place(backdrop, 0, 0, 1280, 720))
+	lids = Lids.new()
+	stage.add_child(Kit.place(lids, 0, 0, 1280, 720))
+	store = Store.new()
 	get_viewport().size_changed.connect(_center)
 	_center()
-	store = Store.new()
 	_apply_settings()
 	keys_mode = _flag("keys")
 	debug = _flag("debug")
@@ -67,7 +77,51 @@ func _ready() -> void:
 
 # 1280×720 を窓の真ん中に置く(project.godot は aspect=expand。余りは黒でなく背景色で埋まる。共通 §3 の 1)。
 func _center() -> void:
-	stage.position = ((get_viewport().get_visible_rect().size - stage.size) / 2.0).round()
+	var vs := get_viewport().get_visible_rect().size
+	stage.position = ((vs - stage.size) / 2.0).round()
+	view = Rect2(-stage.position, vs)
+	backdrop.view = view
+	lids.view = view
+	backdrop.queue_redraw()
+
+
+# 点滅を弱める 入は、画面の切り替わり・題字・雨・はね などの動きも止める(動きを減らす設定を兼ねる)。
+func reduce_motion() -> bool:
+	return bool(store.settings()["reduce_flash"])
+
+
+# 新しい画面を舞台に置き、current にする。motion: "lids"(まぶたが開く)/ "none"。
+func _show(node: Control, motion: String) -> void:
+	stage.add_child(node)
+	stage.move_child(lids, -1)
+	current = node
+	if motion == "lids" and not reduce_motion():
+		lids.run()
+
+
+# 一時停止・一時停止から開いた設定の板を、遊びの画面の上に重ねる(少し上がりながら濃くなる)。
+func _overlay(node: Control) -> void:
+	stage.add_child(node)
+	stage.move_child(lids, -1)
+	if not reduce_motion():
+		node.modulate.a = 0.0
+		entering.append([node, Time.get_ticks_msec(), B.POP_IN_MS, B.POP_RISE_PX])
+
+
+func _step_entering() -> void:
+	var now := Time.get_ticks_msec()
+	var keep: Array = []
+	for e: Array in entering:
+		var node: Variant = e[0]
+		if not is_instance_valid(node) or not (node as Control).is_inside_tree():
+			continue
+		var c := node as Control
+		var k := Kit.ease_out(float(now - int(e[1])) / int(e[2]))
+		c.modulate.a = k
+		c.position.y = float(e[3]) * (1.0 - k)
+		if k < 1.0:
+			keep.append(e)
+	entering = keep
 
 
 static func _flag(flag: String) -> bool:
@@ -86,9 +140,11 @@ func _clear() -> void:
 		pause_view.queue_free()
 		pause_view = null
 	for c in stage.get_children():
-		if c is ColorRect and c.get_index() == 0:
+		if c == backdrop or c == lids:
 			continue
+		stage.remove_child(c)  # 消える画面に押しやマウスを取らせない(queue_free まで木に残さない)
 		c.queue_free()
+	entering.clear()
 	current = null
 	play = null
 	_settings_overlay = null
@@ -96,6 +152,9 @@ func _clear() -> void:
 
 func _set_screen(s: String) -> void:
 	screen = s
+	backdrop.rain = s in ["gate", "title"]
+	backdrop.animate = not reduce_motion()
+	backdrop.queue_redraw()
 	if auto != "":
 		var extra := ""
 		if s == "result" and current != null:
@@ -109,14 +168,19 @@ func _show_gate() -> void:
 	_clear()
 	var g := Control.new()
 	g.size = Vector2(1280, 720)
-	g.add_child(Kit.place(Kit.label(S.NAME, 72, Kit.C_TEXT, 800), 0, 220, 1280, 100))
-	g.add_child(Kit.place(Kit.label(S.S0_START, 28, Kit.C_TEXT, 500), 0, 360, 1280, 44))
-	g.add_child(Kit.place(Kit.label(S.S0_KEYBOARD, 18, Kit.C_DIM), 0, 410, 1280, 30))
+	var logo := Logo.new()
+	logo.reduce = reduce_motion()
+	logo.position = Vector2(((1280 - logo.size.x) / 2.0), 170)
+	g.add_child(logo)
+	logo.play_intro()
+	var start := Kit.label(S.S0_START, 28, Kit.C_TEXT, 700)
+	start.name = "start"
+	g.add_child(Kit.place(start, 0, 372, 1280, 44))
+	g.add_child(Kit.place(Kit.label(S.S0_KEYBOARD, 20, Kit.C_DIM, 500), 0, 424, 1280, 30))
 	_touch_note = Kit.label(S.TOUCH, 22, Kit.C_WARN, 700)
 	_touch_note.visible = false
-	g.add_child(Kit.place(_touch_note, 0, 470, 1280, 40))
-	stage.add_child(g)
-	current = g
+	g.add_child(Kit.place(_touch_note, 0, 486, 1280, 40))
+	_show(g, "none")
 	_set_screen("gate")
 
 
@@ -153,8 +217,14 @@ func _input(event: InputEvent) -> void:
 		current.key(event)
 
 
-# smoke: S0 → 今日のステージ → 結果まで自動で進める。
+# 板の入りの動きを進める。smoke の時は S0 → 今日のステージ → 結果まで自動で進める。
 func _process(_delta: float) -> void:
+	if not entering.is_empty():
+		_step_entering()
+	if screen == "gate" and current != null and not reduce_motion():  # 「始める」の字をゆっくり濃淡(BREATH_MS で 1 往復。点滅ではない)
+		var l := current.get_node_or_null("start") as Label
+		if l != null:
+			l.modulate.a = 0.55 + 0.45 * Kit.tri(Time.get_ticks_msec(), B.BREATH_MS)
 	if auto == "":
 		return
 	if screen == "gate":
@@ -174,10 +244,9 @@ func _show_title() -> void:
 	_clear()
 	var d := _today()
 	var t := Title.new()
-	t.build(store, d["day"], d["date"])
+	t.build(store, d["day"], d["date"], reduce_motion())
 	t.chosen.connect(_on_title)
-	stage.add_child(t)
-	current = t
+	_show(t, "lids")
 	_set_screen("title")
 
 
@@ -187,10 +256,10 @@ func _on_title(what: String) -> void:
 		"settings":
 			_show_settings("title")
 		"daily":
-			_start({"mode": Sim.MODE_DAILY, "seed": Day.day_seed(d["day"]), "day": d["day"], "date": d["date"]})
+			_start({"mode": Sim.MODE_DAILY, "seed": Day.day_seed(d["day"]), "day": d["day"], "date": d["date"]}, "lids")
 		"practice":
 			var s := Time.get_ticks_usec() & 0xFFFFFFFF
-			_start({"mode": Sim.MODE_PRACTICE, "seed": s if s != 0 else 1, "day": d["day"], "date": d["date"]})
+			_start({"mode": Sim.MODE_PRACTICE, "seed": s if s != 0 else 1, "day": d["day"], "date": d["date"]}, "lids")
 
 
 # 端末の今日の日付。始めた時の日付でステージを決める(E-15)。
@@ -204,20 +273,20 @@ func _today() -> Dictionary:
 
 # --- S2 プレイ ---
 
-func _start(r: Dictionary) -> void:
+# motion: タイトルからは "lids"。もう1回・やり直すは "none"(押してすぐ遊べるように動きを付けない)。
+func _start(r: Dictionary, motion: String = "none") -> void:
 	_clear()
 	run = r
 	play = Play.new()
 	var st: Dictionary = store.settings()
 	play.shake_on = st["shake"]
 	play.reduce_flash = st["reduce_flash"]
-	stage.add_child(play)
+	_show(play, motion)
 	play.start(int(r["mode"]), int(r["seed"]))
 	if auto != "":
 		play.bot = Bots.Driver.new(["dodge", "idle", "under"].find(auto), int(r["seed"]))
 	play.finished.connect(_on_finished)
 	play.pause_requested.connect(_pause)
-	current = play
 	_set_screen("play")
 
 
@@ -229,12 +298,13 @@ func _pause() -> void:
 	pause_view = Pause.new()
 	pause_view.build()
 	pause_view.picked.connect(_on_pause)
-	stage.add_child(pause_view)
+	_overlay(pause_view)
 
 
 func _on_pause(what: String) -> void:
 	match what:
 		"resume":
+			stage.remove_child(pause_view)  # 消える板に押しを取らせない
 			pause_view.queue_free()
 			pause_view = null
 			play.paused = false  # 押した tick から再開(待ち時間なし)
@@ -271,11 +341,10 @@ func _on_finished(result: Dictionary) -> void:
 	var text := Share.make(r["date"], int(r["mode"]), rec["first_today"], result)
 	_clear()
 	var v := Result.new()
-	v.build(result, rec, text)
+	v.build(result, rec, text, reduce_motion())
 	v.retry.connect(func() -> void: _start(run))  # FR-20: 同じ入口。今日のステージは同じ種
 	v.to_title.connect(_show_title)
-	stage.add_child(v)
-	current = v
+	_show(v, "lids")
 	_set_screen("result")
 
 
@@ -290,16 +359,16 @@ func _show_settings(from: String) -> void:
 		pause_view.visible = false
 		pause_view.process_mode = Node.PROCESS_MODE_DISABLED
 		var dim := ColorRect.new()
-		dim.color = Color(Kit.C_BG, 0.96)
+		dim.color = Color(Kit.C_OUT, 0.95)
+		dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		s.add_child(Kit.place(dim, -2000, -2000, 5280, 4720))
 		s.move_child(dim, 0)
-		stage.add_child(s)
+		_overlay(s)
 		_settings_overlay = s
 		current = s
 	else:
 		_clear()
-		stage.add_child(s)
-		current = s
+		_show(s, "lids")
 	_set_screen("settings")
 
 
@@ -310,6 +379,7 @@ func _settings_back(s: Control) -> void:
 		play.shake_on = st["shake"]
 		play.reduce_flash = st["reduce_flash"]
 		play.field.reduce_flash = st["reduce_flash"]
+		stage.remove_child(s)
 		s.queue_free()
 		_settings_overlay = null
 		pause_view.visible = true
@@ -326,13 +396,15 @@ func _show_keys() -> void:
 	_clear()
 	var g := Control.new()
 	g.size = Vector2(1280, 720)
-	g.add_child(Kit.place(Kit.label(S.KEYS_TITLE, 22, Kit.C_TEXT, 700), 0, 20, 1280, 40))
+	var sheet := Panel.new()
+	sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	g.add_child(Kit.place(sheet, 40, 16, 1200, 688))
+	g.add_child(Kit.place(Kit.label(S.KEYS_TITLE, 22, Kit.C_TEXT, 700), 0, 28, 1280, 40))
 	_keys_label = Kit.label("", 18, Kit.C_KEY_TEXT, 400)
 	_keys_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_keys_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	g.add_child(Kit.place(_keys_label, 60, 80, 1160, 620))
-	stage.add_child(g)
-	current = g
+	g.add_child(Kit.place(_keys_label, 64, 80, 1152, 610))
+	_show(g, "lids")
 	_set_screen("keys")
 
 

@@ -134,7 +134,9 @@ const CLEAR_WAIT_MS := 1000
 const COUNT_MS := 600
 const RETRY_LOCK_MS := 300
 const IME_NOTE_MS := 3000
-const BLINK_INVULN_MS := 100  # 無敵の間の点滅の周期の半分
+const INVULN_PULSE_MS := 500  # 無敵の間、自機の濃さが 1 往復する時間(v0.3.0: 1 秒に 2 回。前は 100 ms ごとの点滅で 1 秒に 5 回だった)
+const INVULN_ALPHA := [0.3, 1.0]  # 往復する濃さ(点滅を弱める 入なら INVULN_ALPHA_REDUCED のまま)
+const INVULN_ALPHA_REDUCED := 0.55
 const REDUCED_FLASH_ALPHA := 0.2
 
 # 磨きで足した演出(2026-11-20。遊びの決まりは変えない)。ms・tick・不透明度
@@ -148,3 +150,22 @@ const HIT_TINT_ALPHA_REDUCED := 0.12  # 点滅を弱める時(共通 §3 の 17:
 const WARN_FILL_ALPHA := [0.04, 0.16]  # 柱の予告の帯の塗り(出始め → 光線の直前)
 const DEMO_MS := 700  # タイトルの盤で自機が跳ぶ間隔
 const DEMO_KEYS := [16, 2, 25, 19, 13, 7, 21, 11, 28, 13]  # タイトルの盤で跳ぶ順(J E N ; F U X S . F)
+
+# UI の作り直し(v0.3.0)で足した見た目の動き。画面設計書 §10。点滅を弱める 入 では全部止める(動きを減らす設定を兼ねる)。
+# どれも既定で 1 秒に 3 回を超えて明るさが行き来しないようにする(題材が「瞬き」でも)
+const HIT_FLASH_GAP_MS := 350  # 弾が当たった敵を白く光らせる間隔の下限(弾は 1 秒に 15 発当たるので、毎回光らせると 15 回の明滅になる)
+const LIDS_MS := 280  # 画面の切り替わり: 閉じたまぶたが開く
+const LIDS_GAP_MS := 450  # この間に次の切り替わりが来たら、まぶたは出さない(連打で明滅を重ねない)
+const POP_IN_MS := 160  # 一時停止・設定の板が出る
+const POP_RISE_PX := 10.0
+const LOGO_STAGGER_MS := 55  # 題字の管が 1 字ずつ灯る間隔
+const LOGO_LIGHT_MS := 160  # 1 字が灯りきるまで
+const LOGO_JUMP_MS := 260  # 灯った後、自機の三角が K から i の点へ跳ぶ(跳んだ筋が消えるまで)
+const HUM_MS := 4000  # 題字の光がゆっくり息をする 1 往復(1 秒に 0.25 回)
+const RAIN_SPEED := 70.0  # タイトルの背景の雨の速さ(px/秒)
+const RAIN_COUNT := 48
+const BREATH_MS := 1800  # 「クリックかキーで始める」の濃淡の 1 往復
+const BUMP_MS := 160  # 点・波が変わった時のはね
+const BUMP_SCALE := 0.14
+const COUNT_UP_RATE := 14.0  # 上の帯の点が本当の点へ追いつく速さ(1 秒あたりの割合)
+const SIGN_MS := 320  # 新しい記録の看板が灯る(数え上げが終わってから)

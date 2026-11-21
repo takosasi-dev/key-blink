@@ -1,6 +1,6 @@
 // ブラウザでの自動の確認の土台(RootCall の tests/web/lib.mjs を写した物)。Web 書き出しを手元で配り、
 // 窓なし・消音・使い捨てのプロフィールの Chrome を CDP で動かす。状態は ?debug=1 の時の window.kbState を読むだけで、入力は本物のキーとマウスを送る。
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const WEB = path.join(ROOT, 'build', 'web');
+export const WEB = process.env.KB_WEB ? path.resolve(process.env.KB_WEB) : path.join(ROOT, 'build', 'web'); // KB_WEB で別の書き出し(build/web_trace など)
 export const OUT = path.join(ROOT, 'build', 'web_shots');
 export const SAVE_KEY = 'key-blink/save'; // save/save_store.gd の WEB_KEY
 const HTTP_PORT = Number(process.env.KB_HTTP_PORT || 8816);
@@ -63,7 +63,7 @@ export async function waitFor(fn, timeoutMs, everyMs = 200) {
 
 async function connect(url) {
 	const ws = new WebSocket(url);
-	await new Promise((ok, ng) => { ws.onopen = ok; ws.onerror = ng; });
+	await new Promise((ok, ng) => { ws.onopen = ok; ws.onerror = ng; setTimeout(() => ng(new Error('CDP の WebSocket が開かない')), 15000); });
 	let id = 0;
 	const pending = new Map();
 	const listeners = [];
@@ -215,12 +215,18 @@ export async function open(url, metrics = DESKTOP) {
 			return file;
 		},
 		T0, errors: () => logs.filter((l) => ['error', 'exception'].includes(l.level) && !String(l.text).includes('favicon.ico')),
+		// 自分が起動した Chrome の木だけを止める(名前やポートで探して止めない)。子のプロセスがプロフィールと CDP のポートを掴んだまま残ると、
+		// プロフィールの削除が EPERM で落ち、次の open が古いブラウザにつながるおそれがある → 親が終わるのを待ち、残っていれば親 PID の木を止め、ポートが空くまで待つ。
+		// Browser.close の返事が来ないと、前の作りはここで終わりなく待つ(boot.mjs が 2 回目で止まった件の候補。再現はしていない)→ 3 秒で見切る
 		close: async () => {
-			try { await cdp.send('Browser.close'); } catch { /* もう閉じた */ }
+			try { await Promise.race([cdp.send('Browser.close'), sleep(3000)]); } catch { /* もう閉じた */ }
 			cdp.close();
-			await Promise.race([new Promise((ok) => proc.once('exit', ok)), sleep(3000)]);
-			proc.kill();
-			rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+			const exited = proc.exitCode !== null || await Promise.race([new Promise((ok) => proc.once('exit', () => ok(true))), sleep(5000).then(() => false)]);
+			if (!exited) spawnSync('taskkill', ['/T', '/F', '/PID', String(proc.pid)], { stdio: 'ignore' });
+			await waitFor(async () => { try { await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); return false; } catch { return true; } }, 10000, 200);
+			for (let i = 0; i < 10; i++) {
+				try { rmSync(profile, { recursive: true, force: true }); break; } catch { await sleep(500); }
+			}
 		},
 	};
 	return page;

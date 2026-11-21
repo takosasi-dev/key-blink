@@ -3,7 +3,7 @@
 extends RefCounted
 
 const NAME := "KeyBlink"
-const VERSION := "v0.2.1"
+const VERSION := "v0.3.0"
 const URL := "https://takosasi-dev.github.io/key-blink/"
 
 # S0(共通 §6)
@@ -67,6 +67,11 @@ const B_BACK := "戻る"
 const PAUSE := "一時停止"
 const B_RESUME := "続ける"
 const B_RESTART := "やり直す"
+
+# 画面の下のキーの案内(v0.3.0。キーの形は ui/keyhint.gd が描く)
+const HINT_SELECT := "選ぶ"
+const HINT_OK := "決める"
+const HINT_CHANGE := "変える"
 
 # キーの確かめ(共通 §3 の 22)
 const KEYS_TITLE := "キーの確かめ(押したキーを下に出す。Esc 2 回でタイトルへ)"

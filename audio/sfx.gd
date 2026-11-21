@@ -2,7 +2,7 @@
 # 音量 0 か、unlock() の前(最初のクリック・キーの前)なら鳴らさない。読めないファイルは音なしで続ける。作りは RootCall の audio/sfx.gd。
 extends Node
 
-const NAMES: Array = ["blink", "power_up", "shot_hit", "kill", "graze", "laser_warn", "laser_fire", "wall_drop", "hit", "wave_start", "over", "clear"]
+const NAMES: Array = ["blink", "power_up", "shot_hit", "kill", "graze", "laser_warn", "laser_fire", "wall_drop", "hit", "wave_start", "over", "clear", "select", "confirm"]
 const VOICES := 8
 
 var volume := 75  # 0〜100

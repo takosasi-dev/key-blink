@@ -39,6 +39,7 @@ try {
 	expect(!!s0, `S0 が出る(ページを開いてから ${Date.now() - page.t0} ms)`);
 	const loadedAt = Date.now();
 	await page.evaluate(`localStorage.setItem('parry-duel/save', '{"version":1,"keep":"me"}')`);
+	await sleep(1200);  // 題字が 1 字ずつ灯って三角が跳び終わるまで(約 0.9 秒)
 	await page.shot('s0');
 	await page.touch(...(await page.gameCss(640, 360)));
 	await sleep(600);
@@ -46,7 +47,7 @@ try {
 	await page.shot('s0_touch');
 	await page.key('x');
 	expect(!!(await page.waitState((s) => s.screen === 'title')), 'キーで S1');
-	await sleep(300);
+	await sleep(700);  // まぶたが開ききってから(280 ms)
 	await page.shot('s1_title_first');
 
 	// 今日のステージ
@@ -65,7 +66,7 @@ try {
 	await page.key('ArrowDown');
 	await page.key('Enter');
 	expect(!!(await page.waitState((s) => s.screen === 'settings', 3000)), '一時停止から設定');
-	await sleep(200);
+	await sleep(500);
 	await page.shot('s4_settings_from_pause');
 	await page.key('Escape');
 	expect(!!(await page.waitState((s) => s.screen === 'play' && s.paused, 3000)), '設定の Esc で一時停止に戻る');
@@ -109,7 +110,7 @@ try {
 	if (hit?.screen === 'play') await page.shot('s2_hit');
 	const res = await page.waitState((s) => s.screen === 'result', 60000);
 	expect(!!res, '残機 0 で S3');
-	await sleep(900);
+	await sleep(1500);  // 数え上げ 600 ms と看板 320 ms の後
 	await page.shot('s3_result_lost');
 	const saved = await page.saved();
 	expect(saved?.daily?.first != null, `保存が key-blink/save に入る: ${JSON.stringify(saved)}`);
@@ -128,13 +129,13 @@ try {
 	await page.key('ArrowUp');
 	await page.key('Enter');
 	expect(!!(await page.waitState((s) => s.screen === 'title', 3000)), '一時停止からタイトルへ');
-	await sleep(300);
+	await sleep(700);
 	await page.shot('s1_title_record');
 	await page.key('ArrowDown');
 	await page.key('ArrowDown');
 	await page.key('Enter');
 	expect(!!(await page.waitState((s) => s.screen === 'settings', 3000)), 'タイトルから設定');
-	await sleep(200);
+	await sleep(500);
 	await page.shot('s4_settings');
 	await page.key('Escape');
 	await page.waitState((s) => s.screen === 'title', 3000);
@@ -176,7 +177,7 @@ try {
 		expect(Object.keys(plan).length === 0, `bot の回の場面が全部撮れた(残り: ${Object.keys(plan).join(' ') || '無し'})`);
 		const r2 = await page.waitState((s) => s.screen === 'result', 10000);
 		expect(!!r2, `bot の回が S3 まで届く(最後: 波 ${last?.wave} 残機 ${last?.lives} 点 ${last?.score})`);
-		await sleep(900);
+		await sleep(1800);
 		await page.shot('s3_result_bot');
 		console.log('    bot の回の 1 フレーム(ms): ' + JSON.stringify((await page.stats()).frame));
 		// AC-21: 読み込みの後、3 分間の通信が 0 件(bot の回を最後まで遊ぶ間を数える)

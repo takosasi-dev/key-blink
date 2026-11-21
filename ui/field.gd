@@ -168,7 +168,7 @@ func _enemy(e: Dictionary, now: int) -> void:
 	var col: Color = Kit.ENEMY_COLORS[kind]
 	var h := now - int(hit_at.get(e["id"], -100000))
 	if h >= 0 and h < B.SHOT_HIT_MS:
-		col = Kit.C_WHITE
+		col = col.lerp(Kit.C_WHITE, 0.35 if reduce_flash else 0.85)  # 点滅を弱める 入なら少し明るくするだけ
 	# 体力が減ると縁が細くなる
 	var w := 1.0 + 3.0 * clampf(float(e["hp"]) / float(B.ENEMY_HP[kind]), 0.0, 1.0)
 	match kind:
@@ -240,7 +240,7 @@ func _ship(now: int) -> void:
 			draw_line(from, Vector2(Keys.x_of(ghost_to), Keys.y_of(ghost_to)), Color(Kit.C_SHIP, 0.35 * fade), 3.0 * line_k, true)
 		_triangle(from, Color(Kit.C_SHIP, 0.5 * fade))
 	var invuln: int = snap["invuln"]
-	var visible_now := invuln <= 0 or (now / B.BLINK_INVULN_MS) % 2 == 0
+	var ship_a := invuln_alpha(invuln, now, reduce_flash)
 	var power: int = snap["power"]
 	var glow := now - ring_glow_at
 	var ring_c := Kit.C_WHITE if glow >= 0 and glow < B.RING_GLOW_MS else Kit.C_SHIP
@@ -251,9 +251,18 @@ func _ship(now: int) -> void:
 	var cd: int = snap["cooldown"]
 	if cd > 0:
 		draw_arc(c, RING_R - 6.0, -PI / 2.0, -PI / 2.0 + TAU * cd / B.BLINK_COOLDOWN, 24, Color(Kit.C_TEXT, 0.7), 1.0, true)
-	if visible_now:
-		_triangle(c, Kit.C_SHIP)
+	_triangle(c, Color(Kit.C_SHIP, ship_a))
 	draw_circle(c, B.SHIP_R, Kit.C_WHITE)  # 当たりの点は常に見せる
+
+
+# 無敵の間の自機の濃さ。INVULN_PULSE_MS で 1 往復するなめらかな濃淡(1 秒に 2 回。消えたり点いたりはしない)。
+# 点滅を弱める 入なら INVULN_ALPHA_REDUCED のまま動かさない。v0.3.0 で 100 ms ごとの点滅(1 秒に 5 回)から変えた。
+static func invuln_alpha(invuln: int, now: int, p_reduce: bool) -> float:
+	if invuln <= 0:
+		return 1.0
+	if p_reduce:
+		return B.INVULN_ALPHA_REDUCED
+	return lerpf(B.INVULN_ALPHA[0], B.INVULN_ALPHA[1], Kit.tri(now, B.INVULN_PULSE_MS))
 
 
 # 当たった所に広がる赤い輪(何に当たったかを目で追えるように)。

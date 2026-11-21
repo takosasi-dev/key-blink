@@ -1,4 +1,4 @@
-"""効果音 12 個(仕様書 §9.12)を合成して assets/sfx/<名前>.wav に書く。標準ライブラリだけ・乱数は使わない(何度回しても同じバイト列)。
+"""効果音 14 個(仕様書 §9.12 の 12 個と、v0.3.0 で足したメニューの選択・決定)を合成して assets/sfx/<名前>.wav に書く。標準ライブラリだけ・乱数は使わない(何度回しても同じバイト列)。
 16bit PCM・モノラル・22050 Hz。合計 400 KB 以下(非機能 NFR-7)。
 
     python tools/gen_sfx.py
@@ -87,6 +87,13 @@ def main():
     for k, f in enumerate([523, 659, 784, 1047]):
         tone(b, k * 0.1, 0.35, f, decay=6)  # クリア
     write("clear", b, 0.5)
+    b = []
+    tone(b, 0, 0.035, 1500, 1700, decay=45)  # メニューの選択(v0.3.0): ごく短い高い音
+    write("select", b, 0.25)
+    b = []
+    tone(b, 0, 0.04, 1100, decay=35)
+    tone(b, 0.04, 0.08, 1650, 1600, decay=30)  # メニューの決定(v0.3.0): 短い上がる 2 音
+    write("confirm", b, 0.3)
     total = sum(p.stat().st_size for p in OUT.glob("*.wav"))
     print(f"{len(list(OUT.glob('*.wav')))} 個、合計 {total:,} バイト")
 
